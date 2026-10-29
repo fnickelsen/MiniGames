@@ -103,6 +103,9 @@ h2{font-family:var(--display);font-weight:400;font-size:21px;margin:0;text-wrap:
 .mid{flex:1;min-width:0;display:grid;gap:8px;justify-items:center;align-content:center}
 .hint{margin:0;text-align:center;font-weight:800;font-size:18px}
 .stopbtn{min-width:240px;min-height:72px;font-size:26px;background:var(--red);color:var(--white);touch-action:none}
+.spins{display:flex;flex-wrap:wrap;gap:10px;justify-content:center}
+.spinb{font-size:16px;padding:10px 14px;min-height:56px;touch-action:none}
+.spinb.sel{background:var(--grape);color:var(--white)}
 .tbar{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
 .tbar .btn.small{font-size:13px;padding:5px 10px}
 .foot{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between}
@@ -167,6 +170,7 @@ body.playing .top{display:none}
     <div class="pad">
       <div class="mid" id="tmid">
         <p class="hint" id="hint"></p>
+        <div class="spins" id="spins" hidden><button type="button" class="btn spinb" id="spL">↶ Drall links</button><button type="button" class="btn spinb sel" id="spN">⬆ Gerade</button><button type="button" class="btn spinb" id="spR">↷ Drall rechts</button></div>
         <button id="stop" class="btn stopbtn" hidden>STOPP! 🎯</button>
       </div>
     </div>
@@ -424,7 +428,7 @@ function drawPreview(t){
 }
 
 /* ---------- Spielfeld (Meter, Kamera hinter dem Ball) ---------- */
-var W=1000,H=620,HOR=300,CAMH=0.6,Z0=4,FOC=1903,D=7,ZG=6.1,BR=0.11,WALLW=3.0,WALLH=2.0,GRAV=9.81,SHOTS=8;
+var SPIN_ACC=9.5,W=1000,H=620,HOR=300,CAMH=0.6,Z0=4,FOC=1903,D=7,ZG=6.1,BR=0.11,WALLW=3.0,WALLH=2.0,GRAV=9.81,SHOTS=8;
 function sc(z){return FOC/(z+Z0);}
 function proj(x,y,z){var s=sc(z);return {x:W/2+x*s,y:HOR+(CAMH-y)*s,s:s};}
 function toWall(sx,sy){var s=sc(D);return {x:(sx-W/2)/s,y:CAMH+(HOR-sy)/s};}
@@ -490,7 +494,7 @@ function startGame(){
   $('overlay').hidden=true;$('builder').hidden=true;$('game').hidden=false;setStep(2);
   buildScore();nextTurn();enterGameScreen();
 }
-function resetBall(){ball={x:0,y:BR,z:0,vx:0,vy:0,vz:0,rot:0,gone:false,flying:false,crossedG:false,crossedW:false};}
+function resetBall(){ball={x:0,y:BR,z:0,vx:0,vy:0,vz:0,ax:0,spin:0,trail:[],rot:0,gone:false,flying:false,crossedG:false,crossedW:false};}
 function nextTurn(){
   resetBall();kicker.x=300;kicker.legA=0;swipe=null;aim=null;
   state='intro';stateT=1.1;keeper.cheer=0;keeper.jumpT=-1;keeper.jumpY=0;keeper.decided=false;
@@ -503,10 +507,10 @@ function beginAim(){
   setHint();
 }
 function setHint(){
-  var stop=$('stop'),h=$('hint');
+  var stop=$('stop'),h=$('hint');$('spins').hidden=!(state==='aim'&&shootMode===1);
   if(state==='intro'){h.textContent='Gleich geht\'s los …';stop.hidden=true;return;}
   if(state!=='aim'){stop.hidden=true;h.textContent='';return;}
-  if(shootMode===0){stop.hidden=true;h.textContent='👆 Wisch vom Ball zum Loch! Schneller wischen = höher schießen.';}
+  if(shootMode===0){stop.hidden=true;h.textContent='👆 Wisch vom Ball zum Loch! Schnell = höher, im Bogen wischen = Drall 🌀';}
   else{stop.hidden=false;h.textContent=aim&&aim.phase===1?'Und jetzt die Höhe! '+(IS_TOUCH?'':'(Leertaste)'):'Stopp das Zielkreuz über dem Loch! '+(IS_TOUCH?'':'(Leertaste)');}
 }
 function buildScore(){
@@ -536,21 +540,24 @@ function updScore(){
 }
 
 /* ---------- Schießen ---------- */
-function kickAt(tx,ty,sd){
+function kickAt(tx,ty,sd,spin){
   if(state!=='aim')return;
-  var hs=1+clamp(ty,0,2.2)*0.7;tx+=gauss()*sd*hs;ty+=gauss()*sd*hs;
-  ball.target={x:tx,y:ty};
-  state='runup';stateT=0.42;$('stop').hidden=true;$('hint').textContent='';
+  spin=spin||0;
+  var hs=(1+clamp(ty,0,2.2)*0.7)*(1+0.15*Math.abs(spin));tx+=gauss()*sd*hs;ty+=gauss()*sd*hs;
+  ball.target={x:tx,y:ty};ball.spin=spin;
+  state='runup';stateT=0.42;$('stop').hidden=true;$('spins').hidden=true;$('hint').textContent='';
 }
 function launch(){
   var tx=ball.target.x,ty=ball.target.y,T=0.6+0.05*clamp(ty,0,2.5);
-  ball.vz=D/T;ball.vx=tx/T;ball.vy=(ty-BR+0.5*GRAV*T*T)/T;ball.flying=true;
+  ball.ax=-ball.spin*SPIN_ACC;
+  ball.vz=D/T;ball.vx=(tx-0.5*ball.ax*T*T)/T;ball.vy=(ty-BR+0.5*GRAV*T*T)/T;ball.flying=true;
   state='flight';stateT=4;sfx('kick');
 }
 function finishShot(points,text,col){
   if(state==='result')return;
   curP().res.push(points);
   state='result';stateT=1.7;
+  if(points>0&&Math.abs(ball.spin)>0.3)text='TOR mit Drall! 🌀';
   showBanner(text,points>0?('+'+points+(points===1?' Punkt':' Punkte')):'',1.7,col);
   if(points>0){sfx('goal');var p=proj(ball.x,ball.y,D);for(var i=0;i<46;i++){var a=Math.random()*TAU,v=120+Math.random()*260;
     fx.push({x:p.x,y:p.y,vx:Math.cos(a)*v,vy:Math.sin(a)*v-160,life:1.4,max:1.4,col:pick(['#ffe14d','#ff5a4e','#3fb6ff','#38c172','#ff6fb5',curP().jersey]),r:Math.random()*TAU});}}
@@ -586,12 +593,16 @@ $('quit').onclick=function(){state='idle';$('game').hidden=true;$('overlay').hid
 function stopAim(){
   if(state!=='aim'||shootMode!==1||!aim)return;
   if(aim.phase===0){aim.phase=1;aim.y=0.05;aim.dy=1;setHint();sfx('tick');}
-  else kickAt(aim.x,aim.y,0.03);
+  else kickAt(aim.x,aim.y,0.03,spinSel);
 }
+var spinSel=0;
+function setSpin(v){spinSel=v;$('spL').classList.toggle('sel',v<0);$('spN').classList.toggle('sel',v===0);$('spR').classList.toggle('sel',v>0);}
+[['spL',-1],['spN',0],['spR',1]].forEach(function(a){$(a[0]).addEventListener('pointerdown',function(e){e.preventDefault();setSpin(a[1]);sfx('tick');});});
 $('stop').addEventListener('pointerdown',function(e){e.preventDefault();stopAim();});
 addEventListener('keydown',function(e){
   if($('game').hidden||(e.target&&e.target.tagName==='INPUT'))return;
   if(e.code==='Space'||e.code==='Enter'||e.code==='NumpadEnter'){e.preventDefault();if(!e.repeat)stopAim();}
+  if(shootMode===1){if(e.code==='ArrowLeft'){e.preventDefault();setSpin(-1);}if(e.code==='ArrowUp'){e.preventDefault();setSpin(0);}if(e.code==='ArrowRight'){e.preventDefault();setSpin(1);}}
 });
 function cvPos(e){var r=cv.getBoundingClientRect();return {x:(e.clientX-r.left)*W/r.width,y:(e.clientY-r.top)*H/r.height,t:performance.now()/1000};}
 cv.addEventListener('pointerdown',function(e){
@@ -614,7 +625,10 @@ function endSwipe(e){
   var wallBottom=proj(0,0,D).y;
   if(end.y<wallBottom+10){tgt=toWall(end.x,end.y);}
   else{var speed=dist/dur,L=clamp(speed*0.28,80,760),bp=proj(0,BR,0);tgt=toWall(bp.x+dx/dist*L,bp.y+dy/dist*L);}
-  kickAt(tgt.x,tgt.y,0.06);
+  var bulge=0,stIdx=pts.indexOf(st);
+  for(var j=stIdx;j<pts.length;j++){var q=pts[j],cr=(dx*(q.y-st.y)-dy*(q.x-st.x))/dist;if(Math.abs(cr)>Math.abs(bulge))bulge=cr;}
+  var spin=Math.abs(bulge)<12?0:clamp(bulge/45,-1,1);
+  kickAt(tgt.x,tgt.y,0.06,spin);
 }
 cv.addEventListener('pointerup',endSwipe);cv.addEventListener('pointercancel',function(){swipe=null;});
 
@@ -650,7 +664,8 @@ function update(dt){
 function stepBall(dt){
   var b=ball;if(b.gone||!b.flying)return;
   var pz=b.z,px=b.x,py=b.y;
-  b.x+=b.vx*dt;b.y+=b.vy*dt;b.z+=b.vz*dt;b.vy-=GRAV*dt;b.rot+=dt*(b.vz>0?14:-8);
+  if(state==='flight'){b.vx+=b.ax*dt;b.trail.push({x:b.x,y:b.y,z:b.z});if(b.trail.length>26)b.trail.shift();}else b.ax=0;
+  b.x+=b.vx*dt;b.y+=b.vy*dt;b.z+=b.vz*dt;b.vy-=GRAV*dt;b.rot+=dt*(b.vz>0?14+Math.abs(b.spin)*14:-8);
   if(b.y<BR){b.y=BR;if(b.vy<0)b.vy=-b.vy*0.45;b.vx*=0.8;b.vz*=0.8;}
   if(state!=='flight')return;
   if(!b.crossedG&&pz<ZG&&b.z>=ZG){b.crossedG=true;
@@ -677,6 +692,9 @@ function drawKeeper(c,t){
   if(K.cheer>0){c.font='18px Bungee, "Arial Black", sans-serif';c.textAlign='center';c.lineWidth=5;c.strokeStyle=INK;var ty=p.y-k*96;c.strokeText('HAB IHN!',p.x,ty);c.fillStyle='#c6ff3d';c.fillText('HAB IHN!',p.x,ty);}
 }
 function drawBallNow(c){
+  if(ball.trail.length>1&&(state==='flight'||state==='result')){
+    for(var i=0;i<ball.trail.length;i+=2){var q=ball.trail[i],qp=proj(q.x,q.y,q.z);circ(c,qp.x,qp.y,Math.max(2,BR*qp.s*0.35));
+      c.fillStyle=Math.abs(ball.spin)>0.3?'rgba(255,225,77,'+(0.15+0.6*i/ball.trail.length)+')':'rgba(255,255,255,'+(0.1+0.4*i/ball.trail.length)+')';c.fill();}}
   if(ball.gone)return;
   var p=proj(ball.x,ball.y,ball.z),sh=proj(ball.x,0,ball.z),r=BR*p.s;
   c.fillStyle='rgba(10,50,10,.3)';c.beginPath();c.ellipse(sh.x,sh.y,r*1.1,r*0.3,0,0,TAU);c.fill();
